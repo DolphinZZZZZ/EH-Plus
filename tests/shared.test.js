@@ -44,6 +44,7 @@ import {
   directoryLogDate,
   writeDirectoryLogsSnapshot
 } from '../extension/directory-storage.js';
+import * as directoryStorage from '../extension/directory-storage.js';
 import {
   isAccountRefreshPageUrl,
   shouldRefreshAccountOnTabTransition,
@@ -57,6 +58,7 @@ import {
   planImageCacheLimitCleanup,
   planRuntimeCleanup,
   planTemporaryCacheCleanup,
+  recordHasStoredImage,
   shouldAllowNewImageCache,
   summarizeProtectedStorage,
   touchRecordAccess
@@ -70,6 +72,7 @@ import {
   buildExternalResourceCacheFillRecord,
   classifyEhPage,
   createPreloadRequestGateFetch,
+  hydratePreloadRecord,
   parseGalleryHtml,
   parseReaderHtml,
   preloadReaderChain,
@@ -2508,6 +2511,51 @@ test('preload summary counts stored Blob size when imageBytes is missing', () =>
   ]);
 });
 
+test('explicit non-image MIME records are not counted, hydrated, or deliverable as images', async () => {
+  const record = {
+    pageKey: '9001001:8',
+    pageUrl: 'https://reader.example.test/s/fixture-token-a/9001001-8',
+    imageUrl: 'https://cache.example.test/fixture/08.webp',
+    resourceKey: 'https://cache.example.test/fixture/08.webp',
+    imageBytes: 15,
+    mimeType: 'text/html; charset=utf-8',
+    hasImageBlob: true,
+    directoryImageFile: '9001001/9001001-8.webp',
+    dataUrl: 'data:text/html;base64,SW52YWxpZCByZXF1ZXN0'
+  };
+
+  const summary = summarizePreloadRecords([record]);
+
+  assert.equal(summary.imageBytes, 0);
+  assert.equal(summary.imageRecords, 0);
+  assert.deepEqual(summary.readerRecords, [
+    { gid: '9001001', pageNo: 8, pageKey: '9001001:8', hasImage: false }
+  ]);
+  const hydrated = await hydratePreloadRecord(record);
+  assert.equal(hydrated.dataUrl, null);
+  assert.equal(hydrated.imageBlob, null);
+  assert.equal(hydrated.imageBytes, 0);
+  assert.equal(hydrated.hasImageBlob, false);
+  assert.equal(recordHasStoredImage(record), false);
+  assert.equal(recordCanDeliver(record), false);
+});
+
+test('preload hydration preserves non-image gallery metadata', async () => {
+  const record = {
+    galleryKey: '9001002:fake-gallery-token-b',
+    galleryUrl: 'https://gallery.example.test/g/9001002/fixture-token-b/',
+    dataUrl: 'data:application/json;base64,e30=',
+    mimeType: 'application/json',
+    galleryBytes: 2,
+    storageClass: CACHE_STORAGE_CLASSES.PERMANENT
+  };
+
+  const hydrated = await hydratePreloadRecord(record);
+
+  assert.strictEqual(hydrated, record);
+  assert.equal(hydrated.dataUrl, 'data:application/json;base64,e30=');
+});
+
 test('directory preload store writes image files and record indexes', async () => {
   const root = new FakeDirectoryHandle('E站缓存');
   const store = await createDirectoryPreloadStore(root);
@@ -2585,6 +2633,35 @@ test('directory preload store writes image files and record indexes', async () =
   assert.equal(imageHandle.getFileCalls, 1);
 });
 
+test('directory preload store does not hydrate legacy non-image files', async () => {
+  const root = new FakeDirectoryHandle('fixture-cache');
+  const store = await createDirectoryPreloadStore(root);
+  await store.put({
+    pageKey: '9001001:8',
+    pageUrl: 'https://reader.example.test/s/fixture-token-a/9001001-8',
+    imageUrl: 'https://cache.example.test/fixture/08.webp',
+    resourceKey: 'https://cache.example.test/fixture/08.webp',
+    imageBlob: new Blob(['Invalid request'], { type: 'text/html' }),
+    imageBytes: 15,
+    mimeType: 'text/html',
+    hasImageBlob: true
+  });
+
+  const imagesDir = root.children.get('images');
+  const galleryImagesDir = imagesDir.children.get('9001001');
+  const imageHandle = galleryImagesDir.children.get('9001001-8.webp');
+  const stored = await store.get('9001001:8');
+  const hydrated = await store.hydrate(stored);
+
+  assert.ok(imageHandle);
+  assert.equal(imageHandle.getFileCalls, 0);
+  assert.equal(hydrated.dataUrl, null);
+  assert.equal(hydrated.imageBlob, null);
+  assert.equal(hydrated.imageBytes, 0);
+  assert.equal(hydrated.hasImageBlob, false);
+  assert.ok(galleryImagesDir.children.has('9001001-8.webp'));
+});
+
 test('directory preload store stores multiple pages for the same gid in one record file', async () => {
   const root = new FakeDirectoryHandle('E站缓存');
   const store = await createDirectoryPreloadStore(root);
@@ -2627,6 +2704,48 @@ test('directory preload store stores multiple pages for the same gid in one reco
   assert.equal((await store.get('2786404:3')).imageUrl, 'https://example.test/3.webp');
   assert.equal((await store.getByResourceKey('https://example.test/3.webp')).pageKey, '2786404:3');
   assert.deepEqual((await store.list()).map((record) => record.pageKey), ['2786404:2', '2786404:3']);
+});
+
+test('directory preload store serializes concurrent initialization for one directory', async () => {
+  const baselineRoot = new FakeDirectoryHandle('baseline-cache');
+  await createDirectoryPreloadStore(baselineRoot);
+  const baselineScans = directoryEntryScanCount(baselineRoot);
+
+  const concurrentRoot = new FakeDirectoryHandle('concurrent-cache');
+  await Promise.all([
+    createDirectoryPreloadStore(concurrentRoot),
+    createDirectoryPreloadStore(concurrentRoot)
+  ]);
+
+  assert.equal(directoryEntryScanCount(concurrentRoot), baselineScans);
+});
+
+test('directory preload store serializes concurrent writes for pages in the same gid', async () => {
+  const root = new FakeDirectoryHandle('fixture-cache');
+  const store = await createDirectoryPreloadStore(root);
+
+  await Promise.all([
+    store.put({
+      pageKey: '9002001:2',
+      pageUrl: 'https://reader.example.test/s/fixture-token-b/9002001-2',
+      imageUrl: 'https://cache.example.test/2.webp',
+      resourceKey: 'https://cache.example.test/2.webp',
+      imageBlob: new Blob(['page-2'], { type: 'image/webp' }),
+      mimeType: 'image/webp',
+      hasImageBlob: true
+    }),
+    store.put({
+      pageKey: '9002001:3',
+      pageUrl: 'https://reader.example.test/s/fixture-token-c/9002001-3',
+      imageUrl: 'https://cache.example.test/3.webp',
+      resourceKey: 'https://cache.example.test/3.webp',
+      imageBlob: new Blob(['page-3'], { type: 'image/webp' }),
+      mimeType: 'image/webp',
+      hasImageBlob: true
+    })
+  ]);
+
+  assert.deepEqual((await store.list()).map((record) => record.pageKey), ['9002001:2', '9002001:3']);
 });
 
 test('directory preload store keeps unclassified images in images fallback folder', async () => {
@@ -2821,6 +2940,23 @@ test('external image cache-fill stores known image URL without fetching reader p
   assert.deepEqual(calls, [
     'https://fake-a.hath.network/virtual/fixture/02.webp'
   ]);
+});
+
+test('external image cache-fill rejects successful non-image responses', async () => {
+  await assert.rejects(() => buildExternalImageCacheFillRecord({
+    pageKey: '9001001:8',
+    pageUrl: 'https://reader.example.test/s/fixture-token-a/9001001-8',
+    imageUrl: 'https://cache.example.test/fixture/08.webp'
+  }, {
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: new Map([['content-type', 'text/html; charset=utf-8']]),
+      async blob() {
+        return new Blob(['Invalid request'], { type: 'text/html' });
+      }
+    })
+  }), /Non-image response \(text\/html\)/);
 });
 
 test('external image cache-fill does not treat metadata-only records as cached images', async () => {
@@ -3532,6 +3668,71 @@ test('directory authorization returns before migration and cache sync finish', a
   assert.match(serviceWorker, /scheduleBackgroundTask\(\{\s+type: 'EHPLUS_DIRECTORY_SWITCH_FINALIZE'[\s\S]*?async \(\) => \{\s+const migrationResult = await migrateDirectoryCacheToDirectory/);
 });
 
+test('directory authorization runtime keeps custom preference while temporarily falling back', () => {
+  assert.equal(typeof directoryStorage.applyDirectoryAuthorizationRuntime, 'function');
+  assert.equal(typeof directoryStorage.dismissDirectoryAuthorizationNotice, 'function');
+  assert.equal(typeof directoryStorage.shouldShowDirectoryAuthorizationNotice, 'function');
+
+  const lost = directoryStorage.applyDirectoryAuthorizationRuntime({}, {
+    requestedMode: 'directory',
+    directoryLabel: 'fixture-cache',
+    writable: false
+  });
+  assert.equal(lost.effectiveStorageMode, 'indexeddb');
+  assert.equal(lost.directoryAuthorizationRequired, true);
+  assert.equal(lost.directoryAuthorizationIncident, 1);
+  assert.equal(directoryStorage.shouldShowDirectoryAuthorizationNotice(lost), true);
+
+  const repeated = directoryStorage.applyDirectoryAuthorizationRuntime(lost, {
+    requestedMode: 'directory',
+    directoryLabel: 'fixture-cache',
+    writable: false
+  });
+  assert.equal(repeated.directoryAuthorizationIncident, 1);
+
+  const dismissed = directoryStorage.dismissDirectoryAuthorizationNotice(repeated);
+  assert.equal(directoryStorage.shouldShowDirectoryAuthorizationNotice(dismissed), false);
+
+  const restored = directoryStorage.applyDirectoryAuthorizationRuntime(dismissed, {
+    requestedMode: 'directory',
+    directoryLabel: 'fixture-cache',
+    writable: true
+  });
+  assert.equal(restored.effectiveStorageMode, 'directory');
+  assert.equal(restored.directoryAuthorizationRequired, false);
+
+  const lostAgain = directoryStorage.applyDirectoryAuthorizationRuntime(restored, {
+    requestedMode: 'directory',
+    directoryLabel: 'fixture-cache',
+    writable: false
+  });
+  assert.equal(lostAgain.directoryAuthorizationIncident, 2);
+  assert.equal(directoryStorage.shouldShowDirectoryAuthorizationNotice(lostAgain), true);
+});
+
+test('directory authorization fallback is wired into backend selection and restoration', async () => {
+  const serviceWorker = await readFile(join(root, 'extension', 'service-worker.js'), 'utf8');
+
+  assert.match(serviceWorker, /applyDirectoryAuthorizationRuntime/);
+  assert.match(serviceWorker, /effectiveStorageMode:\s*'indexeddb'/);
+  assert.match(serviceWorker, /syncDirectoryAuthorizationRuntime\(activeSettings, false\)/);
+  assert.match(serviceWorker, /EHPLUS_DISMISS_DIRECTORY_AUTHORIZATION_NOTICE/);
+  assert.match(serviceWorker, /loadWritableDirectoryHandle\(\{\s*refresh:\s*true\s*\}\)/);
+});
+
+test('directory authorization reminder shows fallback status and supports both close paths', async () => {
+  const contentScript = await readFile(join(root, 'extension', 'content-script.js'), 'utf8');
+  const contentStyle = await readFile(join(root, 'extension', 'content-style.css'), 'utf8');
+
+  assert.match(contentScript, /data-role="directory-authorization-modal"/);
+  assert.match(contentScript, /data-action="directory-authorization-confirm"/);
+  assert.match(contentScript, /directoryAuthorizationRequiredFallback/);
+  assert.match(contentScript, /event\.target === authorizationModal/);
+  assert.match(contentScript, /document\.documentElement\.appendChild\(authorizationModal\)/);
+  assert.match(contentScript, /EHPLUS_DISMISS_DIRECTORY_AUTHORIZATION_NOTICE/);
+  assert.match(contentStyle, /^\.ehplus-directory-authorization-modal \{/m);
+});
+
 test('preload cache sync does not clear counts when store listing times out', async () => {
   const serviceWorker = await readFile(join(root, 'extension', 'service-worker.js'), 'utf8');
   assert.match(serviceWorker, /records = await withTimeout\(store\.list\(\), PRELOAD_CACHE_SYNC_TIMEOUT_MS, null\)/);
@@ -3574,6 +3775,7 @@ class FakeDirectoryHandle {
     this.kind = 'directory';
     this.name = name;
     this.children = new Map();
+    this.entriesCalls = 0;
   }
 
   async getDirectoryHandle(name, options = {}) {
@@ -3599,8 +3801,17 @@ class FakeDirectoryHandle {
   }
 
   async *entries() {
+    this.entriesCalls += 1;
     yield* this.children.entries();
   }
+}
+
+function directoryEntryScanCount(directoryHandle) {
+  let count = directoryHandle.entriesCalls;
+  for (const child of directoryHandle.children.values()) {
+    if (child?.kind === 'directory') count += directoryEntryScanCount(child);
+  }
+  return count;
 }
 
 async function writeFakeJsonFile(directoryHandle, name, value) {

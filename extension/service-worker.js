@@ -47,7 +47,9 @@ import {
   summarizePreloadRecords
 } from './preload-engine.js';
 import {
+  applyDirectoryAuthorizationRuntime,
   createDirectoryPreloadStore,
+  dismissDirectoryAuthorizationNotice,
   loadDirectoryHandleRecord,
   loadWritableDirectoryHandle,
   saveDirectoryHandle,
@@ -274,7 +276,12 @@ const DEFAULT_STATE = {
     ownAutoPagerPageSessionId: '',
     ownAutoPager: null,
     lastStopSignalAt: 0,
-    heartbeatTimeoutMs: 5000
+    heartbeatTimeoutMs: 5000,
+    requestedStorageMode: 'indexeddb',
+    effectiveStorageMode: 'indexeddb',
+    directoryAuthorizationRequired: false,
+    directoryAuthorizationIncident: 0,
+    directoryAuthorizationNoticeDismissedIncident: 0
   },
   accountRefresh: {
     activeCount: 0,
@@ -731,6 +738,14 @@ async function handleMessage(message, sender) {
 
   if (message?.type === 'EHPLUS_DIRECTORY_SWITCH_RESPONSE') {
     return handleDirectorySwitchResponse(message, sender);
+  }
+
+  if (message?.type === 'EHPLUS_DISMISS_DIRECTORY_AUTHORIZATION_NOTICE') {
+    const state = await updateState((current) => ({
+      ...current,
+      runtime: dismissDirectoryAuthorizationNotice(current.runtime)
+    }));
+    return { ok: true, state };
   }
 
   if (message?.type === 'EHPLUS_UPDATE_SETTINGS') {
@@ -1221,6 +1236,10 @@ async function handleDirectorySelected(message, sender) {
   const label = typeof message.label === 'string' ? message.label.slice(0, 260) : '';
   const selectedAt = Number.isFinite(message.selectedAt) ? message.selectedAt : Date.now();
   const before = await getState();
+  const selectedHandle = await loadWritableDirectoryHandle({ refresh: true });
+  if (!selectedHandle) {
+    return { ok: false, error: 'directory-not-authorized' };
+  }
   const snapshot = pendingDirectorySwitchSnapshot;
   pendingDirectorySwitchSnapshot = null;
 
@@ -1329,6 +1348,11 @@ async function finalizeDirectorySelection({
       directoryCacheEnabled: true,
       directoryLabel: label,
       settingsVersion: SETTINGS_VERSION
+    }),
+    runtime: applyDirectoryAuthorizationRuntime(current.runtime, {
+      requestedMode: 'directory',
+      directoryLabel: label,
+      writable: true
     }),
     migration: {
       ...current.migration,
@@ -3148,8 +3172,12 @@ async function createActivePreloadStore(settings = null) {
   if (activeSettings.storageMode === 'directory' && activeSettings.directoryLabel) {
     const handle = await loadWritableDirectoryHandle();
     if (handle) {
+      await syncDirectoryAuthorizationRuntime(activeSettings, true);
       return createDirectoryPreloadStore(handle);
     }
+    await syncDirectoryAuthorizationRuntime(activeSettings, false);
+  } else {
+    await syncDirectoryAuthorizationRuntime(activeSettings, false);
   }
   const db = await openPreloadDb();
   return createIndexedDbPreloadStore(db);
@@ -3160,8 +3188,38 @@ async function createFastPreloadStore() {
   if (handle) {
     return createDirectoryPreloadStore(handle);
   }
+  const activeSettings = stateMemoryCache?.settings;
+  if (activeSettings?.storageMode === 'directory' && activeSettings.directoryLabel) {
+    syncDirectoryAuthorizationRuntime(activeSettings, false).catch(() => {});
+  }
   const db = await openPreloadDb();
   return createIndexedDbPreloadStore(db);
+}
+
+async function syncDirectoryAuthorizationRuntime(settings, writable) {
+  const current = await getState();
+  const nextRuntime = applyDirectoryAuthorizationRuntime(current.runtime, {
+    requestedMode: settings?.storageMode,
+    directoryLabel: settings?.directoryLabel,
+    writable
+  });
+  if (
+    nextRuntime.requestedStorageMode === current.runtime.requestedStorageMode
+    && nextRuntime.effectiveStorageMode === current.runtime.effectiveStorageMode
+    && nextRuntime.directoryAuthorizationRequired === current.runtime.directoryAuthorizationRequired
+    && nextRuntime.directoryAuthorizationIncident === current.runtime.directoryAuthorizationIncident
+  ) {
+    return current;
+  }
+
+  return updateState((state) => ({
+    ...state,
+    runtime: applyDirectoryAuthorizationRuntime(state.runtime, {
+      requestedMode: settings?.storageMode,
+      directoryLabel: settings?.directoryLabel,
+      writable
+    })
+  }));
 }
 
 async function createManagedPreloadStore(settings = null) {

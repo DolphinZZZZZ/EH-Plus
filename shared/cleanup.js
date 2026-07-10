@@ -280,9 +280,23 @@ export function isGalleryMetadataRecord(record) {
 }
 
 export function recordHasStoredImage(record) {
+  if (recordHasExplicitNonImageMime(record)) return false;
   return imageBytesFromRecord(record) > 0
     || record?.hasImageBlob === true
     || Boolean(record?.directoryImageFile);
+}
+
+function recordHasExplicitNonImageMime(record) {
+  const dataUrlMimeType = (value) => typeof value === 'string'
+    ? value.match(/^data:([^;,]*)(?:[;,])/i)?.[1]
+    : '';
+  const mimeTypes = [
+    record?.mimeType,
+    record?.imageBlob?.type,
+    dataUrlMimeType(record?.dataUrl),
+    dataUrlMimeType(record?.imageBlob)
+  ].map((value) => String(value ?? '').split(';', 1)[0].trim().toLowerCase()).filter(Boolean);
+  return mimeTypes.some((mimeType) => !mimeType.startsWith('image/'));
 }
 
 export function recordStoredBytes(record) {

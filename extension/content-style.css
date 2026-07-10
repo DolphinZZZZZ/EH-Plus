@@ -775,6 +775,80 @@
   font-variant-numeric: tabular-nums;
 }
 
+.ehplus-directory-authorization-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 20px;
+  background: rgba(4, 9, 18, 0.58);
+  backdrop-filter: blur(3px);
+  color: #f3f8ff;
+  font: 12px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.ehplus-directory-authorization-modal[hidden] {
+  display: none !important;
+}
+
+.ehplus-directory-authorization-dialog {
+  width: min(360px, calc(100vw - 40px));
+  box-sizing: border-box;
+  padding: 18px;
+  border: 1px solid rgba(108, 180, 255, 0.42);
+  border-radius: 14px;
+  background: #101c2c;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.46);
+  color: #f3f8ff;
+  text-align: left;
+}
+
+.ehplus-directory-authorization-dialog strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 15px;
+  text-wrap: balance;
+}
+
+.ehplus-directory-authorization-dialog p {
+  margin: 0 0 14px;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.ehplus-directory-authorization-dialog .ehplus-btn {
+  display: block;
+  min-width: 88px;
+  min-height: 40px;
+  margin-left: auto;
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), transform 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.ehplus-directory-authorization-dialog .ehplus-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ehplus-directory-authorization-dialog .ehplus-btn:active {
+  transform: scale(0.96);
+}
+
+.ehplus-directory-authorization-dialog .ehplus-btn:focus-visible {
+  outline: 2px solid rgba(108, 180, 255, 0.92);
+  outline-offset: 2px;
+}
+
 #ehplus-panel .ehplus-result {
   overflow: auto;
   max-height: 110px;

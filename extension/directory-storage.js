@@ -1,3 +1,8 @@
+import {
+  recordHasExplicitNonImageMime,
+  resolveRecordImageMimeType
+} from './image-validation.js';
+
 export const DIRECTORY_STORAGE_DB_NAME = 'ehplus-directory-storage';
 export const DIRECTORY_STORAGE_DB_VERSION = 1;
 export const DIRECTORY_HANDLE_STORE = 'handles';
@@ -13,7 +18,9 @@ const STATS_DIR = 'stats';
 const SETTINGS_DIR = 'settings';
 const DAILY_LOG_FILE_PATTERN = /^\d{4}-\d{2}-\d{2}\.json$/;
 const DIRECTORY_GID_GROUP_KIND = 'gid-pages';
-const migratedDirectoryHandles = new WeakSet();
+const directoryInitializationPromises = new WeakMap();
+let directoryMutationTail = Promise.resolve();
+let cachedDirectoryHandleRecord = null;
 
 export async function saveDirectoryHandle(handle, options = {}) {
   if (!isDirectoryHandle(handle)) {
@@ -35,16 +42,22 @@ export async function saveDirectoryHandle(handle, options = {}) {
   };
   const db = await openDirectoryStorageDb();
   await idbRequest(db.transaction(DIRECTORY_HANDLE_STORE, 'readwrite').objectStore(DIRECTORY_HANDLE_STORE).put(record));
+  cachedDirectoryHandleRecord = record;
   return record;
 }
 
-export async function loadDirectoryHandleRecord() {
+export async function loadDirectoryHandleRecord(options = {}) {
+  if (options.refresh !== true && cachedDirectoryHandleRecord?.handle) {
+    return cachedDirectoryHandleRecord;
+  }
   const db = await openDirectoryStorageDb();
-  return idbRequest(db.transaction(DIRECTORY_HANDLE_STORE, 'readonly').objectStore(DIRECTORY_HANDLE_STORE).get(DIRECTORY_HANDLE_KEY));
+  const record = await idbRequest(db.transaction(DIRECTORY_HANDLE_STORE, 'readonly').objectStore(DIRECTORY_HANDLE_STORE).get(DIRECTORY_HANDLE_KEY));
+  cachedDirectoryHandleRecord = record?.handle ? record : null;
+  return record;
 }
 
-export async function loadWritableDirectoryHandle() {
-  const record = await loadDirectoryHandleRecord();
+export async function loadWritableDirectoryHandle(options = {}) {
+  const record = await loadDirectoryHandleRecord(options);
   const handle = record?.handle;
   if (!isDirectoryHandle(handle)) return null;
   if (typeof handle.queryPermission === 'function') {
@@ -52,6 +65,40 @@ export async function loadWritableDirectoryHandle() {
     if (permission !== 'granted') return null;
   }
   return handle;
+}
+
+export function applyDirectoryAuthorizationRuntime(runtime = {}, options = {}) {
+  const requestedMode = options.requestedMode === 'directory' && options.directoryLabel
+    ? 'directory'
+    : 'indexeddb';
+  const directoryAuthorizationRequired = requestedMode === 'directory' && options.writable !== true;
+  const wasRequired = runtime.directoryAuthorizationRequired === true;
+  const previousIncident = Math.max(0, Number(runtime.directoryAuthorizationIncident) || 0);
+  const directoryAuthorizationIncident = directoryAuthorizationRequired && !wasRequired
+    ? previousIncident + 1
+    : previousIncident;
+
+  return {
+    ...runtime,
+    requestedStorageMode: requestedMode,
+    effectiveStorageMode: requestedMode === 'directory' && options.writable === true ? 'directory' : 'indexeddb',
+    directoryAuthorizationRequired,
+    directoryAuthorizationIncident,
+    directoryAuthorizationNoticeDismissedIncident: Math.max(0, Number(runtime.directoryAuthorizationNoticeDismissedIncident) || 0)
+  };
+}
+
+export function dismissDirectoryAuthorizationNotice(runtime = {}) {
+  return {
+    ...runtime,
+    directoryAuthorizationNoticeDismissedIncident: Math.max(0, Number(runtime.directoryAuthorizationIncident) || 0)
+  };
+}
+
+export function shouldShowDirectoryAuthorizationNotice(runtime = {}) {
+  return runtime.directoryAuthorizationRequired === true
+    && Math.max(0, Number(runtime.directoryAuthorizationIncident) || 0)
+      > Math.max(0, Number(runtime.directoryAuthorizationNoticeDismissedIncident) || 0);
 }
 
 export async function createDirectoryPreloadStore(rootHandle) {
@@ -62,12 +109,7 @@ export async function createDirectoryPreloadStore(rootHandle) {
   await recordsDir.getDirectoryHandle(RECORDS_GID_DIR, { create: true });
   await recordsDir.getDirectoryHandle(RECORDS_URL_DIR, { create: true });
   const imagesDir = await rootHandle.getDirectoryHandle(IMAGES_DIR, { create: true });
-  if (!migratedDirectoryHandles.has(rootHandle)) {
-    await migrateDirectoryImageLayout(recordsDir, imagesDir);
-    await migrateDirectoryRecordGroups(recordsDir);
-    await migrateDirectoryRecordBuckets(recordsDir);
-    migratedDirectoryHandles.add(rootHandle);
-  }
+  await initializeDirectoryStore(rootHandle, recordsDir, imagesDir);
 
   return {
     kind: 'directory',
@@ -82,22 +124,51 @@ export async function createDirectoryPreloadStore(rootHandle) {
       return hydrateDirectoryRecord(record, imagesDir);
     },
     async put(record) {
-      return putDirectoryRecord(recordsDir, imagesDir, record);
+      return runDirectoryMutation(() => putDirectoryRecord(recordsDir, imagesDir, record));
     },
     async list() {
       return listDirectoryRecords(recordsDir, imagesDir);
     },
     async deleteMany(records = []) {
-      await deleteDirectoryRecords(recordsDir, imagesDir, records);
+      await runDirectoryMutation(() => deleteDirectoryRecords(recordsDir, imagesDir, records));
     },
     async stripImages(records = []) {
-      await stripDirectoryRecordImages(recordsDir, imagesDir, records);
+      await runDirectoryMutation(() => stripDirectoryRecordImages(recordsDir, imagesDir, records));
     },
     async clear() {
-      await clearDirectory(recordsDir);
-      await clearDirectory(imagesDir);
+      await runDirectoryMutation(async () => {
+        await clearDirectory(recordsDir);
+        await clearDirectory(imagesDir);
+      });
     }
   };
+}
+
+async function initializeDirectoryStore(rootHandle, recordsDir, imagesDir) {
+  let initialization = directoryInitializationPromises.get(rootHandle);
+  if (!initialization) {
+    initialization = runDirectoryMutation(async () => {
+      await migrateDirectoryImageLayout(recordsDir, imagesDir);
+      await migrateDirectoryRecordGroups(recordsDir);
+      await migrateDirectoryRecordBuckets(recordsDir);
+    });
+    directoryInitializationPromises.set(rootHandle, initialization);
+  }
+
+  try {
+    await initialization;
+  } catch (error) {
+    if (directoryInitializationPromises.get(rootHandle) === initialization) {
+      directoryInitializationPromises.delete(rootHandle);
+    }
+    throw error;
+  }
+}
+
+function runDirectoryMutation(operation) {
+  const result = directoryMutationTail.then(operation);
+  directoryMutationTail = result.catch(() => {});
+  return result;
 }
 
 async function getDirectoryRecord(recordsDir, keyRecord) {
@@ -167,17 +238,21 @@ async function removeDirectoryRecordFile(recordsDir, key) {
 
 export async function writeDirectoryStateSnapshot(rootHandle, state) {
   if (!isDirectoryHandle(rootHandle) || !state) return;
-  await writeJsonFile(await rootHandle.getDirectoryHandle(STATE_DIR, { create: true }), 'ehplus-state.json', state);
-  await writeJsonFile(await rootHandle.getDirectoryHandle(SETTINGS_DIR, { create: true }), 'settings.json', state.settings ?? {});
-  await writeJsonFile(await rootHandle.getDirectoryHandle(STATS_DIR, { create: true }), 'stats.json', state.stats ?? {});
+  await runDirectoryMutation(async () => {
+    await writeJsonFile(await rootHandle.getDirectoryHandle(STATE_DIR, { create: true }), 'ehplus-state.json', state);
+    await writeJsonFile(await rootHandle.getDirectoryHandle(SETTINGS_DIR, { create: true }), 'settings.json', state.settings ?? {});
+    await writeJsonFile(await rootHandle.getDirectoryHandle(STATS_DIR, { create: true }), 'stats.json', state.stats ?? {});
+  });
 }
 
 export async function writeDirectoryLogsSnapshot(rootHandle, logs) {
   if (!isDirectoryHandle(rootHandle)) return;
-  const logsDir = await rootHandle.getDirectoryHandle(LOGS_DIR, { create: true });
-  await clearDirectoryLogSnapshotFiles(logsDir);
-  const groupedLogs = groupLogsByDate(logs);
-  await Promise.all([...groupedLogs].map(([date, items]) => writeJsonFile(logsDir, `${date}.json`, items)));
+  await runDirectoryMutation(async () => {
+    const logsDir = await rootHandle.getDirectoryHandle(LOGS_DIR, { create: true });
+    await clearDirectoryLogSnapshotFiles(logsDir);
+    const groupedLogs = groupLogsByDate(logs);
+    await Promise.all([...groupedLogs].map(([date, items]) => writeJsonFile(logsDir, `${date}.json`, items)));
+  });
 }
 
 export function directoryLogDate(log) {
@@ -505,10 +580,15 @@ async function migrateDirectoryImageFile(imagesDir, previousPath, nextPath) {
 async function hydrateDirectoryRecord(record, imagesDir) {
   const imageFile = typeof record?.directoryImageFile === 'string' ? record.directoryImageFile : '';
   if (!imageFile) return record;
+  if (recordHasExplicitNonImageMime(record)) return withoutNonImagePayload(record);
 
   try {
     const file = await readFilePath(imagesDir, imageFile);
-    const dataUrl = await blobToDataUrl(file, record.mimeType || file.type);
+    if (recordHasExplicitNonImageMime({ ...record, imageBlob: file })) {
+      return withoutNonImagePayload(record);
+    }
+    const mimeType = resolveRecordImageMimeType(record, file.type) || record.mimeType || file.type;
+    const dataUrl = await blobToDataUrl(file, mimeType);
     return {
       ...record,
       imageBlob: file,
@@ -525,6 +605,17 @@ async function hydrateDirectoryRecord(record, imagesDir) {
       dataUrl: null
     };
   }
+}
+
+function withoutNonImagePayload(record) {
+  return {
+    ...record,
+    imageBlob: null,
+    dataUrl: null,
+    imageBytes: 0,
+    hasImageBlob: false,
+    deliveryKind: null
+  };
 }
 
 async function deleteDirectoryRecords(recordsDir, imagesDir, records) {
