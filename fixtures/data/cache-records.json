@@ -1,0 +1,38 @@
+[
+  {
+    "gid": "1001",
+    "pageNo": 1,
+    "pageKey": "1001:1",
+    "imageUrl": "https://example.invalid/test-image-001.png",
+    "imageBlob": "test-image-001",
+    "imageBytes": 14,
+    "readCount": 4,
+    "cacheHitCount": 2,
+    "createdAt": 1719792000000,
+    "lastAccess": 1719878400000
+  },
+  {
+    "gid": "1001",
+    "pageNo": 2,
+    "pageKey": "1001:2",
+    "imageUrl": "https://example.invalid/test-image-002.png",
+    "imageBlob": "test-image-002",
+    "imageBytes": 14,
+    "readCount": 1,
+    "cacheHitCount": 0,
+    "createdAt": 1719792000000,
+    "lastAccess": 1719878400000
+  },
+  {
+    "gid": "1002",
+    "pageNo": 1,
+    "pageKey": "1002:1",
+    "imageUrl": "https://example.invalid/test-image-003.png",
+    "imageBlob": "test-image-003",
+    "imageBytes": 14,
+    "readCount": 7,
+    "cacheHitCount": 5,
+    "createdAt": 1717200000000,
+    "lastAccess": 1717200000000
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "name": "eh-plus",
+  "version": "1.0.0",
+  "description": "Official 1.0.0 build for EH＋.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "generate:fixtures": "pwsh -NoProfile -File scripts/generate-fixtures.ps1",
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "build:extension": "node scripts/build-all.mjs",
+    "build:extension:ps1": "pwsh -NoProfile -File scripts/build-extension.ps1",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

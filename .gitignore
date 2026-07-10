@@ -1,0 +1,12 @@
+node_modules/
+coverage/
+dist/
+.npm-cache/
+.agents/
+.codex/
+tmp/
+AGENTS.md
+build-run.cmd
+*.log
+.DS_Store
+Thumbs.db

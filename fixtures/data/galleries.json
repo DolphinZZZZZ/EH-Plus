@@ -1,0 +1,14 @@
+[
+  {
+    "gid": "9001001",
+    "token": "fake-gallery-token-a",
+    "title": "Local Test Gallery A",
+    "galleryUrl": "https://e-hentai.org/g/9001001/fake-gallery-token-a/"
+  },
+  {
+    "gid": "9001002",
+    "token": "fake-gallery-token-b",
+    "title": "Local Test Gallery B",
+    "galleryUrl": "https://exhentai.org/g/9001002/fake-gallery-token-b/"
+  }
+]

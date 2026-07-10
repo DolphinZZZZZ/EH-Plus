@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>浏览历史 - EH＋</title>
+    <link rel="stylesheet" href="history.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-title">
+          <h1 data-i18n="pageTitle">浏览历史</h1>
+          <span class="topbar-count" data-role="count"></span>
+        </div>
+        <div class="topbar-actions">
+          <label class="filter-select">
+            <span data-i18n="pageFilter">来源</span>
+            <select data-role="history-page-filter">
+              <option value="all" data-i18n="filterAll">全部</option>
+              <option value="g" data-i18n="filterGallery">画廊页 /g/</option>
+              <option value="s" data-i18n="filterReader">阅读页 /s/</option>
+            </select>
+          </label>
+          <div class="sort-toggle" role="group" aria-label="排序方式">
+            <button type="button" class="sort-btn active" data-sort="lastVisited" data-i18n="sortLastVisited">按最近观看</button>
+            <button type="button" class="sort-btn" data-sort="visitCount" data-i18n="sortVisitCount">按观看次数</button>
+          </div>
+          <button type="button" class="clear-btn" data-role="clear" data-i18n="clearAll">清空历史</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="content">
+      <ul class="history-list" data-role="list"></ul>
+      <div class="empty" data-role="empty" hidden>
+        <div class="empty-icon" aria-hidden="true">⌛</div>
+        <p data-i18n="empty">暂无浏览历史</p>
+        <p class="empty-hint" data-i18n="emptyHint">打开 E-Hentai / ExHentai 的画廊页或阅读页后，这里会自动记录。</p>
+      </div>
+      <div class="error" data-role="error" hidden></div>
+    </main>
+
+    <script src="history.js"></script>
+  </body>
+</html>
