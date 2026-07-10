@@ -77,6 +77,7 @@ import { recordFrequentWatch, updateFrequentWatchTitle } from '../shared/statist
 const STATE_KEY = 'ehplus_live_state';
 const LOGS_KEY = 'ehplus_live_logs';
 const SERVICE_WORKER_PROBE_KEY = 'ehplus_service_worker_probe';
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 // 1.0.0 统一命名前的旧存储键：安装/更新时一次性清除（含 ehpe_ 时代的状态与日志）。
 const LEGACY_STORAGE_KEYS = ['ehpe_offline_state', 'ehpe_live_state', 'ehpe_live_logs', 'ehpe_service_worker_probe'];
 const KB = 1024;
@@ -238,7 +239,7 @@ const preloadLive = {
 const PRELOAD_LIVE_SESSION_TTL_MS = 10 * 60 * 1000;
 
 const DEFAULT_STATE = {
-  extensionVersion: '1.0.0',
+  extensionVersion: EXTENSION_VERSION,
   mode: 'official',
   lastStartedAt: 0,
   lastPopupOpenedAt: 0,
@@ -360,7 +361,7 @@ const DEFAULT_STATE = {
     lastError: ''
   },
   about: {
-    currentVersion: '1.0.0',
+    currentVersion: EXTENSION_VERSION,
     repositoryName: GITHUB_REPOSITORY_NAME,
     repositoryUrl: GITHUB_REPOSITORY_URL,
     releasesApiUrl: GITHUB_RELEASES_API_URL,
@@ -377,7 +378,7 @@ const DEFAULT_STATE = {
       level: 'info',
       event: 'runtime.init',
       action: 'initialize-official',
-      message: '1.0.0 已启动',
+      message: `${EXTENSION_VERSION} 已启动`,
       requestId: 'boot',
       simulated: false,
       source: 'service-worker',
@@ -4077,6 +4078,7 @@ function normalizeState(value) {
   const normalized = {
     ...DEFAULT_STATE,
     ...(value ?? {}),
+    extensionVersion: EXTENSION_VERSION,
     counters: {
       ...DEFAULT_STATE.counters,
       ...(value?.counters ?? {})
@@ -4124,7 +4126,7 @@ function normalizeState(value) {
     about: {
       ...DEFAULT_STATE.about,
       ...(value?.about ?? {}),
-      currentVersion: value?.extensionVersion ?? DEFAULT_STATE.extensionVersion,
+      currentVersion: EXTENSION_VERSION,
       repositoryName: GITHUB_REPOSITORY_NAME,
       repositoryUrl: GITHUB_REPOSITORY_URL,
       releasesApiUrl: GITHUB_RELEASES_API_URL,

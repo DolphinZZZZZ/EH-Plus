@@ -1,6 +1,6 @@
 # Extension Build
 
-This directory contains the Manifest V3 1.0.0 extension build of EH＋. The default visible language is Chinese, and the language setting is applied to the floating panel and popup together.
+This directory contains the Manifest V3 1.0.1 extension build of EH＋. The default visible language is Chinese, and the language setting is applied to the floating panel and popup together.
 
 Current behavior:
 

@@ -97,6 +97,27 @@ import { imageCleanupZeroDayMessage, parseNonNegativeIntegerDays } from '../shar
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
+test('release version 1.0.1 stays synchronized across metadata and runtime surfaces', async () => {
+  const [packageJson, manifest, serviceWorker, contentScript, popupScript, popupHtml] = await Promise.all([
+    readFile(join(root, 'package.json'), 'utf8').then(JSON.parse),
+    readFile(join(root, 'extension', 'manifest.json'), 'utf8').then(JSON.parse),
+    readFile(join(root, 'extension', 'service-worker.js'), 'utf8'),
+    readFile(join(root, 'extension', 'content-script.js'), 'utf8'),
+    readFile(join(root, 'extension', 'popup.js'), 'utf8'),
+    readFile(join(root, 'extension', 'popup.html'), 'utf8')
+  ]);
+
+  assert.equal(packageJson.version, '1.0.1');
+  assert.equal(manifest.version, packageJson.version);
+  assert.equal(packageJson.description, 'Official 1.0.1 build for EH＋.');
+  assert.match(serviceWorker, /const EXTENSION_VERSION = chrome\.runtime\.getManifest\(\)\.version;/);
+  assert.match(serviceWorker, /function normalizeState\(value\)[\s\S]*?extensionVersion: EXTENSION_VERSION,/);
+  assert.match(serviceWorker, /currentVersion: EXTENSION_VERSION,/);
+  assert.equal((contentScript.match(/\?\? '1\.0\.1'/g) ?? []).length, 2);
+  assert.equal((popupScript.match(/mode: chrome\.runtime\.getManifest\(\)\.version/g) ?? []).length, 2);
+  assert.match(popupHtml, /data-i18n="mode">1\.0\.1<\/p>/);
+});
+
 test('formats byte sizes with one decimal and TB maximum unit', () => {
   assert.equal(formatBytes(512 * 1024), '512.0 KB');
   assert.equal(formatBytes(2 * 1024 * 1024), '2.0 MB');

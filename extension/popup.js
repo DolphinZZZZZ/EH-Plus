@@ -1,12 +1,12 @@
 const I18N = {
   'zh-CN': {
-    mode: '1.0.0',
+    mode: chrome.runtime.getManifest().version,
     message: '账号状态、缓存、统计、签到和设置都在网页悬浮窗内显示与操作。',
     historyLink: '浏览历史',
     footnote: '如未看到悬浮窗，请打开或刷新 E-Hentai / ExHentai 页面。'
   },
   'en-US': {
-    mode: '1.0.0',
+    mode: chrome.runtime.getManifest().version,
     message: 'Account status, cache, statistics, check-in, and settings are all shown and operated in the page floating panel.',
     historyLink: 'Browsing history',
     footnote: 'If the floating panel is not visible, open or refresh an E-Hentai / ExHentai page.'
