@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "EH＋",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "EH的网页增强插件",
   "icons": {
     "16": "icons/icon-16.png",

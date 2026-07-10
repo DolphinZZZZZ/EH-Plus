@@ -1,7 +1,7 @@
 {
   "name": "eh-plus",
-  "version": "1.0.0",
-  "description": "Official 1.0.0 build for EH＋.",
+  "version": "1.0.1",
+  "description": "Official 1.0.1 build for EH＋.",
   "type": "module",
   "private": true,
   "scripts": {

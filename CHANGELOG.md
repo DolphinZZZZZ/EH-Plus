@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- Serialized custom-directory initialization and filesystem mutations so concurrent preload writes keep every page record and do not leave new conflicting temporary files.
+- Added an explicit authorization-loss state: the extension temporarily uses IndexedDB while preserving the custom-directory preference, synchronizes the visible storage status, and shows a dismissible reauthorization reminder before restoring directory storage after authorization succeeds.
+- Rejects HTTP-success responses that explicitly return non-image MIME types, and prevents legacy explicit non-image records from being counted, hydrated, skipped as valid cache hits, or delivered as images while preserving valid gallery JSON metadata.
+- Keeps release version metadata synchronized with the manifest, including persisted runtime state, the floating panel, and the popup.
+
 ## 1.0.0
 
 - Renamed the project from `EH_Page_Enhancer` to `EH＋` across package names, build artifact names, display strings, and license attribution.

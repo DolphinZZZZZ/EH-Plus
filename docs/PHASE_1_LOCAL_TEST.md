@@ -1,6 +1,6 @@
 # Phase 1 Local Test Plan
 
-Status: completed. The current extension is version 1.0.0 for EH/EX. This document remains as the historical boundary for the first local simulation milestone; current behavior is described in `README.md` and `extension/README.md`.
+Status: completed. The current extension is version 1.0.1 for EH/EX. This document remains as the historical boundary for the first local simulation milestone; current behavior is described in `README.md` and `extension/README.md`.
 
 Phase 1 intentionally avoids real browser and network effects.
 
@@ -11,7 +11,7 @@ Phase 1 intentionally avoids real browser and network effects.
 - Do not submit image-limit reset requests.
 - Do not build or exercise a Tampermonkey/userscript package.
 - Do not write to Chrome, Edge, or Firefox profiles.
-- The only allowed real network path in the Phase 1 local test extension was the future GitHub Release update check/download flow. The current 1.0.0 build reports when no project Release API is configured instead of forcing a simulated update.
+- The only allowed real network path in the Phase 1 local test extension was the future GitHub Release update check/download flow. The current 1.0.1 build uses the configured project Release API instead of forcing a simulated update.
 
 ## Local Fixtures
 
@@ -29,7 +29,7 @@ Use `npm run build:extension` to create the Chrome MV3 package under `dist/` and
 
 Load that folder with Chrome developer mode. The popup only points users back to the page floating panel. Account status, cache, statistics, Dawn/check-in, and settings live in the page floating panel. The current extension performs real E-Hentai account/Dawn requests and EH/EX reader-page preloading when loaded on EH/EX pages; automated tests still use local fixtures.
 
-Earlier Phase 1 local UI testing allowed injection on ordinary `http` and `https` pages. The current 1.0.0 extension no longer does that: account, Dawn, and quota requests use E-Hentai account pages, ExHentai permission supports page injection and EH/EX gallery/reader preloading, and `content_scripts.matches` are limited to EH/EX `/g/` gallery pages and `/s/` reader pages.
+Earlier Phase 1 local UI testing allowed injection on ordinary `http` and `https` pages. The current 1.0.1 extension no longer does that: account, Dawn, and quota requests use E-Hentai account pages, ExHentai permission supports page injection and EH/EX gallery/reader preloading, and `content_scripts.matches` are limited to EH/EX `/g/` gallery pages and `/s/` reader pages.
 
 The injected page UI should reference the original Page Preload source structure and behavior: draggable `#ehp-panel`, `.ehp-head`, `.ehp-actions`, `.ehp-settings`, `.ehp-matrix`, settings action, quick toggles, status lines, and matrix dots. On reader pages, matrix dots should use the current `gid:pageNo` and bounded reader cache summaries for exact cached/index-only status; only fall back to aggregate storage and queue counts when exact records are unavailable. The test build keeps the UI behavior but uses local simulation instead of real preloading/network/cache writes. It must not expose top-level test buttons that trigger simulated requests and write log entries.
 
@@ -65,7 +65,7 @@ The statistics tab no longer has a list filter or embedded frequently watched li
 
 The colors group lists every dot state and its current color. Users can click the dot icon, use the color picker, or enter hex values such as `ff`, `0ff`, `00e5ff`, or `#00e5ff`; the row previews the pending color first, then applies and saves it only after Confirm. Cancel or clicking elsewhere restores the saved color.
 
-The floating panel also includes an about group. It shows the current extension version, a GitHub icon/link, GitHub-only source notice, free/open-source notice, and a warning that paid copies elsewhere are third-party resale of open source. The project GitHub action opens the real repository, and update checks query the project Release API. Automatic update checks run at most once every 7 days, and available updates show a small clickable notice beside the floating-panel title. The current 1.0.0 build does not simulate an available update for UI inspection.
+The floating panel also includes an about group. It shows the current extension version, a GitHub icon/link, GitHub-only source notice, free/open-source notice, and a warning that paid copies elsewhere are third-party resale of open source. The project GitHub action opens the real repository, and update checks query the project Release API. Automatic update checks run at most once every 7 days, and available updates show a small clickable notice beside the floating-panel title. The current 1.0.1 build does not simulate an available update for UI inspection.
 
 
 

@@ -3500,7 +3500,7 @@ async function readStoredPanelState() {
 
 function buildInitialPanelFallbackState() {
   return {
-    extensionVersion: chrome.runtime?.getManifest?.().version ?? '1.0.0',
+    extensionVersion: chrome.runtime?.getManifest?.().version ?? '1.0.1',
     runtime: {
       owner: 'extension'
     },
@@ -3560,7 +3560,7 @@ function buildInitialPanelFallbackState() {
     migration: {},
     cleanup: {},
     about: {
-      currentVersion: chrome.runtime?.getManifest?.().version ?? '1.0.0'
+      currentVersion: chrome.runtime?.getManifest?.().version ?? '1.0.1'
     },
     logs: [],
     __ehplusPanelBootstrapOnly: true
