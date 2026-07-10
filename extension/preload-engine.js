@@ -1,4 +1,11 @@
 import { buildRequestDetail } from './live-api.js';
+import {
+  inferImageMimeType,
+  recordHasExplicitNonImageMime,
+  recordRequiresImageMime,
+  resolveImageResponseMimeType,
+  resolveRecordImageMimeType
+} from './image-validation.js';
 
 export const PRELOAD_DB_NAME = 'ehplus-preload-cache';
 export const PRELOAD_STORE_NAME = 'pages';
@@ -216,14 +223,19 @@ export async function getPreloadRecordByResourceKey(db, resourceKey) {
 }
 
 export async function hydratePreloadRecord(record) {
-  if (!record || record.dataUrl || !record.imageBlob) return record;
+  if (!record) return record;
+  if (recordRequiresImageMime(record) && recordHasExplicitNonImageMime(record)) {
+    return withoutNonImagePayload(record);
+  }
+  if (record.dataUrl || !record.imageBlob) return record;
 
   const image = await recordImageBlob(record);
   if (!image) return record;
+  const mimeType = resolveRecordImageMimeType(record) || image.type;
 
   return {
     ...record,
-    dataUrl: await blobToDataUrl(image, record.mimeType || image.type),
+    dataUrl: await blobToDataUrl(image, mimeType),
     imageBytes: image.size,
     hasImageBlob: image.size > 0,
     deliveryKind: 'data-url'
@@ -885,6 +897,7 @@ export function toCooperativeRecord(record) {
 function recordHasImageBlob(record) {
   // 规划 §968：图片体包含 imageBlob / dataUrl / 有效 imageBytes / 目录图片文件；
   // 目录模式下元数据缺失时靠 directoryImageFile 判定，避免重复抓取已落盘图片。
+  if (recordHasExplicitNonImageMime(record)) return false;
   return recordImageBytes(record) > 0
     || record?.hasImageBlob === true
     || Boolean(record?.directoryImageFile)
@@ -892,6 +905,7 @@ function recordHasImageBlob(record) {
 }
 
 function recordImageBytes(record) {
+  if (recordHasExplicitNonImageMime(record)) return 0;
   const declaredBytes = Number(record?.imageBytes);
   if (Number.isFinite(declaredBytes) && declaredBytes > 0) return declaredBytes;
 
@@ -902,6 +916,17 @@ function recordImageBytes(record) {
   if (typeof blob === 'string') return byteLength(blob);
 
   return 0;
+}
+
+function withoutNonImagePayload(record) {
+  return {
+    ...record,
+    imageBlob: null,
+    dataUrl: null,
+    imageBytes: 0,
+    hasImageBlob: false,
+    deliveryKind: null
+  };
 }
 
 async function fetchText(fetchImpl, url, options = {}) {
@@ -945,9 +970,17 @@ async function fetchBlob(fetchImpl, url) {
   const response = await fetchImpl(url, { credentials: 'include', cache: 'force-cache' });
   if (!response?.ok) throw new Error(`HTTP ${response?.status ?? 'error'} for ${url}`);
   const blob = await response.blob();
+  const resolvedType = resolveImageResponseMimeType({
+    contentType: response.headers?.get?.('content-type'),
+    blobType: blob.type,
+    url
+  });
+  if (!resolvedType.ok) {
+    throw new Error(`Non-image response (${resolvedType.rejectedMimeType}) for ${url}`);
+  }
   return {
     blob,
-    type: blob.type || response.headers?.get?.('content-type') || inferMimeType(url),
+    type: resolvedType.mimeType,
     bytes: blob.size
   };
 }
@@ -1120,12 +1153,7 @@ function decodeHtml(value) {
 }
 
 function inferMimeType(url) {
-  const path = parseUrl(url)?.pathname ?? '';
-  if (/\.png$/i.test(path)) return 'image/png';
-  if (/\.webp$/i.test(path)) return 'image/webp';
-  if (/\.gif$/i.test(path)) return 'image/gif';
-  if (/\.jpe?g$/i.test(path)) return 'image/jpeg';
-  return 'application/octet-stream';
+  return inferImageMimeType(url) || 'application/octet-stream';
 }
 
 async function blobToDataUrl(blob, mimeType) {

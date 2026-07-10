@@ -1,3 +1,9 @@
+import {
+  inferImageMimeType,
+  recordHasExplicitNonImageMime,
+  recordRequiresImageMime
+} from './image-validation.js';
+
 export const COOPERATIVE_CACHE_QUERY_TYPE = 'EHPLUS_COOPERATIVE_CACHE_QUERY';
 export const COOPERATIVE_CACHE_RESPONSE_TYPE = 'EHPLUS_COOPERATIVE_CACHE_RESPONSE';
 export const COOPERATIVE_API_VERSION = 1;
@@ -288,6 +294,7 @@ export function findCooperativeCacheHit(allRecords, query) {
 
 export function recordCanDeliver(record) {
   if (!record) return false;
+  if (recordRequiresImageMime(record) && recordHasExplicitNonImageMime(record)) return false;
   if (Boolean(buildDelivery(record, COOPERATIVE_RESPONSE_MODES.URL).url)) return true;
 
   const bytes = Number(record.imageBytes ?? record.galleryBytes ?? record.bytes);
@@ -376,6 +383,9 @@ function buildDelivery(record, responseMode) {
   if (responseMode === COOPERATIVE_RESPONSE_MODES.METADATA) {
     return { kind: 'metadata' };
   }
+  if (recordRequiresImageMime(record) && recordHasExplicitNonImageMime(record)) {
+    return { kind: 'none', url: null };
+  }
 
   const url = record.blobUrl ?? record.dataUrl ?? record.cacheUrl ?? record.deliveryUrl ?? null;
   return {
@@ -448,10 +458,5 @@ function missStatsDeltaForCacheType(cacheType) {
 }
 
 function inferMimeType(url) {
-  const value = String(url ?? '').split('?')[0].toLowerCase();
-  if (value.endsWith('.png')) return 'image/png';
-  if (value.endsWith('.jpg') || value.endsWith('.jpeg')) return 'image/jpeg';
-  if (value.endsWith('.gif')) return 'image/gif';
-  if (value.endsWith('.webp')) return 'image/webp';
-  return 'application/octet-stream';
+  return inferImageMimeType(url) || 'application/octet-stream';
 }

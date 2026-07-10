@@ -2813,6 +2813,9 @@ const I18N = {
     directorySelected: '目录已选择',
     directorySelectCancelled: '已取消选择目录',
     directoryAuthorizationOpened: '目录授权窗口已打开，请在窗口内确认选择',
+    directoryAuthorizationRequiredFallback: '{label}（需要重新授权，当前暂用浏览器默认存储）',
+    directoryAuthorizationReminderTitle: '自定义存储需要重新授权',
+    directoryAuthorizationReminderBody: '当前已暂时回退到浏览器默认存储。原自定义目录设置仍会保留，点击存储地址可以重新授权。',
     directoryMigrationAccepted: '已开始迁移旧目录数据',
     directoryMigrationSkipped: '已切换目录，未迁移旧目录数据',
     migrateDirectoryConfirm: '是否将 {from} 迁移到 {to}？',
@@ -3101,6 +3104,9 @@ const I18N = {
     directorySelected: 'Directory selected',
     directorySelectCancelled: 'Directory selection cancelled',
     directoryAuthorizationOpened: 'Directory authorization window opened. Confirm the directory there.',
+    directoryAuthorizationRequiredFallback: '{label} (reauthorization required; browser default storage is temporarily active)',
+    directoryAuthorizationReminderTitle: 'Custom storage needs reauthorization',
+    directoryAuthorizationReminderBody: 'EH＋ temporarily fell back to browser default storage. The custom directory preference is preserved; click the storage address to reauthorize it.',
     directoryMigrationAccepted: 'Started migration from the old directory',
     directoryMigrationSkipped: 'Directory switched without migrating old data',
     migrateDirectoryConfirm: 'Migrate {from} to {to}?',
@@ -3373,8 +3379,14 @@ async function initPanel() {
   if (document.querySelector('#ehplus-panel')) return;
   const state = buildInitialPanelFallbackState();
   const root = createPanel(state);
+  const authorizationModal = root.querySelector('[data-role="directory-authorization-modal"]');
   root.__ehplusState = state;
+  root.__ehplusDirectoryAuthorizationModal = authorizationModal;
   document.documentElement.appendChild(root);
+  if (authorizationModal) {
+    document.documentElement.appendChild(authorizationModal);
+    bindDirectoryAuthorizationReminder(root, authorizationModal);
+  }
   restorePanelPosition(root, state.floatingPanel);
   clampPanelPosition(root);
   bindPanelDrag(root);
@@ -3792,6 +3804,13 @@ ${autoPagerToggle}
         <button type="button" class="ehplus-btn" data-action="save-settings" data-i18n="syncNow">立即同步</button>
       </div>
     </div>
+    <div class="ehplus-directory-authorization-modal" data-role="directory-authorization-modal" hidden>
+      <div class="ehplus-directory-authorization-dialog" role="dialog" aria-modal="true" aria-labelledby="ehplus-directory-authorization-title">
+        <strong id="ehplus-directory-authorization-title" data-i18n="directoryAuthorizationReminderTitle">自定义存储需要重新授权</strong>
+        <p data-i18n="directoryAuthorizationReminderBody">当前已暂时回退到浏览器默认存储。原自定义目录设置仍会保留，点击存储地址可以重新授权。</p>
+        <button type="button" class="ehplus-btn" data-action="directory-authorization-confirm" data-i18n="confirm">确认</button>
+      </div>
+    </div>
     <div class="ehplus-error" data-role="error" hidden></div>
   `;
   setSelect(panel, 'storageMode', settings.storageMode ?? 'indexeddb');
@@ -3803,6 +3822,18 @@ ${autoPagerToggle}
   panel.__ehplusLanguage = settings.language ?? 'zh-CN';
   applyLanguage(panel);
   return panel;
+}
+
+function bindDirectoryAuthorizationReminder(root, authorizationModal) {
+  authorizationModal.addEventListener('click', async (event) => {
+    if (event.target === authorizationModal) {
+      await dismissDirectoryAuthorizationReminder(root);
+    }
+  });
+  authorizationModal.querySelector('[data-action="directory-authorization-confirm"]')
+    ?.addEventListener('click', async () => {
+      await dismissDirectoryAuthorizationReminder(root);
+    });
 }
 
 function bindPanelActions(root) {
@@ -4483,7 +4514,33 @@ function directoryAddressText(root, state) {
   const settings = state?.settings ?? root.__ehplusState?.settings ?? {};
   const migration = state?.migration ?? root.__ehplusState?.migration ?? {};
   const label = normalizeDirectoryLabel(root.__ehplusDirectoryLabel || settings.directoryLabel || migration.targetDirectoryLabel || '');
+  if (state?.runtime?.directoryAuthorizationRequired === true) {
+    return t(root, 'directoryAuthorizationRequiredFallback', {
+      label: label || t(root, 'directoryNotSelected')
+    });
+  }
   return label || t(root, 'directoryNotSelected');
+}
+
+function renderDirectoryAuthorizationReminder(root, state) {
+  const modal = root.__ehplusDirectoryAuthorizationModal;
+  if (!modal) return;
+  const runtime = state?.runtime ?? {};
+  modal.hidden = !(runtime.directoryAuthorizationRequired === true
+    && (Number(runtime.directoryAuthorizationIncident) || 0)
+      > (Number(runtime.directoryAuthorizationNoticeDismissedIncident) || 0));
+}
+
+async function dismissDirectoryAuthorizationReminder(root) {
+  const modal = root.__ehplusDirectoryAuthorizationModal;
+  if (modal) modal.hidden = true;
+  const response = await chrome.runtime.sendMessage({
+    type: 'EHPLUS_DISMISS_DIRECTORY_AUTHORIZATION_NOTICE'
+  }).catch(() => null);
+  if (response?.state) {
+    root.__ehplusState = response.state;
+    renderPanel(root, response.state);
+  }
 }
 
 function bindStorageAddressActions(root) {
@@ -4684,6 +4741,7 @@ function renderPanel(root, state) {
   }
   syncControlsFromState(root, state);
   applyLanguage(root);
+  renderDirectoryAuthorizationReminder(root, state);
   updatePanelStatusLine(root, state);
   renderPanelDetailLine(root, state);
   renderMiniStats(root, state);
@@ -5724,11 +5782,13 @@ function updateResultText(root, result) {
 function applyLanguage(root) {
   const lang = languageOf(root);
   root.__ehplusLanguage = lang;
-  root.querySelectorAll('[data-i18n]').forEach((node) => {
-    node.textContent = t(root, node.dataset.i18n);
-  });
-  root.querySelectorAll('[data-i18n-title]').forEach((node) => {
-    node.title = t(root, node.dataset.i18nTitle);
+  [root, root.__ehplusDirectoryAuthorizationModal].filter(Boolean).forEach((scope) => {
+    scope.querySelectorAll('[data-i18n]').forEach((node) => {
+      node.textContent = t(root, node.dataset.i18n);
+    });
+    scope.querySelectorAll('[data-i18n-title]').forEach((node) => {
+      node.title = t(root, node.dataset.i18nTitle);
+    });
   });
 }
 
